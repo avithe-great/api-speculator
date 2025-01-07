@@ -1,0 +1,18 @@
+# SPDX-License-Identifier: Apache-2.0
+# Copyright 2024 Authors of API-Speculator
+
+database:
+  uri: <mongoDBUri>
+  user: <user>
+  password: <password>
+  name: <databaseName>
+  collection: <collectionName>
+
+environment:
+  clusterId: <yourClusterId>
+  tenantId: <yourTenantId>
+
+openAPISpec: <urlOrPath> # Either filepath or URL
+
+exporter:
+  jsonReportFilePath: report.json
