@@ -4,7 +4,10 @@
 package apievent
 
 type ApiEvent struct {
-	RequestMethod string `json:"request_method"`
-	RequestPath   string `json:"request_path"`
-	ResponseCode  int    `json:"response_code"`
+	ClusterName   string `json:"cluster_name,omitempty"`
+	ServiceName   string `json:"service_name,omitempty"`
+	RequestMethod string `json:"request_method,omitempty"`
+	RequestPath   string `json:"request_path,omitempty"`
+	ResponseCode  int    `json:"response_code,omitempty"`
+	Occurrences   int    `json:"occurrences,omitempty"`
 }

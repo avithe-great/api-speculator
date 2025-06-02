@@ -4,9 +4,10 @@
 package core
 
 import (
-	"slices"
+	"fmt"
 	"strings"
 
+	"github.com/emirpasic/gods/sets/hashset"
 	"github.com/pb33f/libopenapi"
 	"github.com/pb33f/libopenapi/datamodel/high/v3"
 
@@ -15,11 +16,16 @@ import (
 	"github.com/5gsec/api-speculator/internal/pathtrie"
 )
 
-func (m *Manager) findShadowAndZombieApi(trie pathtrie.PathTrie, events []apievent.ApiEvent, model *libopenapi.DocumentModel[v3.Document]) ([]string, []string) {
-	var shadowApis []string
-	var zombieApis []string
+func (m *Manager) findShadowAndZombieApi(trie pathtrie.PathTrie, events *hashset.Set, model *libopenapi.DocumentModel[v3.Document]) ([]API, []API) {
+	var shadowApis []API
+	var zombieApis []API
 
-	for _, event := range events {
+	for _, value := range events.Values() {
+		event, ok := value.(apievent.ApiEvent)
+		if !ok {
+			m.Logger.Warnf("failed to parse endpoint `%v`", value)
+			continue
+		}
 		requestPath, _ := apispec.GetPathAndQuery(event.RequestPath)
 
 		// Skip static assets and root endpoint
@@ -38,8 +44,14 @@ func (m *Manager) findShadowAndZombieApi(trie pathtrie.PathTrie, events []apieve
 
 		_, _, found := trie.GetPathAndValue(requestPath)
 		if !found {
-			if !slices.Contains(shadowApis, requestPath) {
-				shadowApis = append(shadowApis, requestPath)
+			if !contains(shadowApis, event) {
+				shadowApis = append(shadowApis, API{
+					ClusterName:   event.ClusterName,
+					ServiceName:   event.ServiceName,
+					RequestMethod: event.RequestMethod,
+					RequestPath:   requestPath,
+					Occurrences:   event.Occurrences,
+				})
 			}
 		}
 
@@ -47,8 +59,14 @@ func (m *Manager) findShadowAndZombieApi(trie pathtrie.PathTrie, events []apieve
 		if found {
 			for operation := currPathValue.GetOperations().First(); operation != nil; operation = operation.Next() {
 				if operation.Value().Deprecated != nil && *operation.Value().Deprecated {
-					if !slices.Contains(zombieApis, requestPath) {
-						zombieApis = append(zombieApis, requestPath)
+					if !contains(zombieApis, event) {
+						zombieApis = append(zombieApis, API{
+							ClusterName:   event.ClusterName,
+							ServiceName:   event.ServiceName,
+							RequestMethod: event.RequestMethod,
+							RequestPath:   requestPath,
+							Occurrences:   event.Occurrences,
+						})
 					}
 				}
 			}
@@ -56,4 +74,55 @@ func (m *Manager) findShadowAndZombieApi(trie pathtrie.PathTrie, events []apieve
 	}
 
 	return shadowApis, zombieApis
+}
+
+func (m *Manager) findOrphanApi(events *hashset.Set, model *libopenapi.DocumentModel[v3.Document]) []API {
+	var orphanApis []API
+
+	traffickedEndpointsWithReqMethodAndPathOnly := make(map[string]struct{}, events.Size())
+	for _, value := range events.Values() {
+		event, ok := value.(apievent.ApiEvent)
+		if !ok {
+			m.Logger.Warnf("failed to parse endpoint `%v`", value)
+			continue
+		}
+
+		requestPath, _ := apispec.GetPathAndQuery(event.RequestPath)
+		requestPath = apispec.UnifyParameterizedPathIfApplicable(requestPath)
+		requestMethod := strings.ToUpper(event.RequestMethod)
+		key := fmt.Sprintf("%v/%v", requestMethod, requestPath)
+
+		if _, exists := traffickedEndpointsWithReqMethodAndPathOnly[key]; !exists {
+			traffickedEndpointsWithReqMethodAndPathOnly[key] = struct{}{}
+		}
+	}
+
+	for pathItems := model.Model.Paths.PathItems.First(); pathItems != nil; pathItems = pathItems.Next() {
+		for operations := pathItems.Value().GetOperations().First(); operations != nil; operations = operations.Next() {
+			requestPath := apispec.UnifyParameterizedPathIfApplicable(pathItems.Key())
+			requestMethod := strings.ToUpper(operations.Key())
+			key := fmt.Sprintf("%v/%v", requestMethod, requestPath)
+
+			if _, exists := traffickedEndpointsWithReqMethodAndPathOnly[key]; !exists {
+				// This spec endpoint didn't receive traffic.
+				orphanApis = append(orphanApis, API{
+					RequestMethod: requestMethod,
+					RequestPath:   requestPath,
+				})
+			}
+		}
+	}
+
+	return orphanApis
+}
+
+func contains(apis []API, currEvent apievent.ApiEvent) bool {
+	for _, api := range apis {
+		if api.RequestPath == currEvent.RequestPath &&
+			api.RequestMethod == currEvent.RequestMethod &&
+			api.ServiceName == currEvent.ServiceName {
+			return true
+		}
+	}
+	return false
 }

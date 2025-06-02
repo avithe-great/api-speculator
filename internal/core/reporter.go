@@ -10,17 +10,26 @@ import (
 	"github.com/pb33f/libopenapi/datamodel/high/base"
 )
 
-type apiReport struct {
-	ClusterId   int      `json:"clusterId"`
-	TenantId    int      `json:"tenantId"`
-	SpecTitle   string   `json:"specTitle"`
-	SpecVersion string   `json:"specVersion"`
-	OASVersion  string   `json:"oasVersion"`
-	ShadowAPIs  []string `json:"shadowApis,omitempty"`
-	ZombieAPIs  []string `json:"zombieApis,omitempty"`
+type API struct {
+	ClusterName   string `json:"clusterName,omitempty"`
+	ServiceName   string `json:"serviceName,omitempty"`
+	RequestMethod string `json:"requestMethod"`
+	RequestPath   string `json:"requestPath"`
+	Occurrences   int    `json:"occurrences,omitempty"`
 }
 
-func (m *Manager) exportJsonReport(reportFilePath string, shadowApis, zombieApis []string, specInfo *base.Info, openApiVersion string) error {
+type apiReport struct {
+	ClusterId   int    `json:"clusterId"`
+	TenantId    int    `json:"tenantId"`
+	SpecTitle   string `json:"specTitle"`
+	SpecVersion string `json:"specVersion"`
+	OASVersion  string `json:"oasVersion"`
+	ShadowAPIs  []API  `json:"shadowApis,omitempty"`
+	ZombieAPIs  []API  `json:"zombieApis,omitempty"`
+	OrphanAPIs  []API  `json:"orphanApis,omitempty"`
+}
+
+func (m *Manager) exportJsonReport(reportFilePath string, shadowApis, zombieApis, orphanApis []API, specInfo *base.Info, openApiVersion string) error {
 	report := apiReport{
 		ClusterId:   m.Cfg.Environment.ClusterId,
 		TenantId:    m.Cfg.Environment.TenantId,
@@ -29,6 +38,7 @@ func (m *Manager) exportJsonReport(reportFilePath string, shadowApis, zombieApis
 		OASVersion:  openApiVersion,
 		ShadowAPIs:  shadowApis,
 		ZombieAPIs:  zombieApis,
+		OrphanAPIs:  orphanApis,
 	}
 
 	f, err := os.OpenFile(reportFilePath, os.O_CREATE|os.O_WRONLY|os.O_TRUNC, 0o666)
