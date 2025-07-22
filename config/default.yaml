@@ -16,3 +16,5 @@ openAPISpec: <urlOrPath> # Either filepath or URL
 
 exporter:
   jsonReportFilePath: report.json
+
+scanName: default-openapi-spec-scan  

@@ -6,8 +6,6 @@ package core
 import (
 	"encoding/json"
 	"os"
-
-	"github.com/pb33f/libopenapi/datamodel/high/base"
 )
 
 type API struct {
@@ -19,26 +17,20 @@ type API struct {
 }
 
 type apiReport struct {
-	ClusterId   int    `json:"clusterId"`
-	TenantId    int    `json:"tenantId"`
-	SpecTitle   string `json:"specTitle"`
-	SpecVersion string `json:"specVersion"`
-	OASVersion  string `json:"oasVersion"`
-	ShadowAPIs  []API  `json:"shadowApis,omitempty"`
-	ZombieAPIs  []API  `json:"zombieApis,omitempty"`
-	OrphanAPIs  []API  `json:"orphanApis,omitempty"`
+	TenantId   int    `json:"tenantId"`
+	ScanName   string `json:"scan_name"`
+	ShadowAPIs []API  `json:"shadowApis,omitempty"`
+	ZombieAPIs []API  `json:"zombieApis,omitempty"`
+	OrphanAPIs []API  `json:"orphanApis,omitempty"`
 }
 
-func (m *Manager) exportJsonReport(reportFilePath string, shadowApis, zombieApis, orphanApis []API, specInfo *base.Info, openApiVersion string) error {
+func (m *Manager) exportJsonReport(reportFilePath string, shadowApis, zombieApis, orphanApis []API) error {
 	report := apiReport{
-		ClusterId:   m.Cfg.Environment.ClusterId,
-		TenantId:    m.Cfg.Environment.TenantId,
-		SpecTitle:   specInfo.Title,
-		SpecVersion: specInfo.Version,
-		OASVersion:  openApiVersion,
-		ShadowAPIs:  shadowApis,
-		ZombieAPIs:  zombieApis,
-		OrphanAPIs:  orphanApis,
+		TenantId:   m.Cfg.Environment.TenantId,
+		ScanName:   m.Cfg.ScanName,
+		ShadowAPIs: shadowApis,
+		ZombieAPIs: zombieApis,
+		OrphanAPIs: orphanApis,
 	}
 
 	f, err := os.OpenFile(reportFilePath, os.O_CREATE|os.O_WRONLY|os.O_TRUNC, 0o666)

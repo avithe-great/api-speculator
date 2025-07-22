@@ -11,11 +11,14 @@ import (
 )
 
 func (m *Manager) findDocuments(collectionName string, clusterId int) (*hashset.Set, error) {
-	// Todo: Process in batch of maybe 2000
 	filter := bson.D{
-		bson.E{Key: "operation", Value: "Api"},
-		bson.E{Key: "cluster_id", Value: clusterId},
+		{Key: "operation", Value: "Api"},
 	}
+
+	if clusterId != 0 {
+		filter = append(filter, bson.E{Key: "cluster_id", Value: clusterId})
+	}
+
 	projection := bson.D{
 		{Key: "_id", Value: 0},
 		{Key: "cluster_name", Value: 1},
@@ -28,7 +31,7 @@ func (m *Manager) findDocuments(collectionName string, clusterId int) (*hashset.
 
 	cursor, err := m.DBHandler.Database.
 		Collection(collectionName).
-		Find(m.Ctx, &filter, &options.FindOptions{
+		Find(m.Ctx, filter, &options.FindOptions{
 			Projection: &projection,
 		})
 	if err != nil {
@@ -52,6 +55,7 @@ func (m *Manager) findDocuments(collectionName string, clusterId int) (*hashset.
 		if responseCode == nil {
 			continue
 		}
+
 		apiEvents.Add(apievent.ApiEvent{
 			ClusterName:   document["cluster_name"].(string),
 			ServiceName:   document["api_event"].(bson.M)["http"].(bson.M)["request"].(bson.M)["headers"].(bson.M)[":authority"].(string),
@@ -61,8 +65,13 @@ func (m *Manager) findDocuments(collectionName string, clusterId int) (*hashset.
 			Occurrences:   int(document["api_event"].(bson.M)["count"].(int32)),
 		})
 	}
+
 	if apiEvents.Size() == 0 {
-		m.Logger.Warnf("no documents found in `%s` collection of clusterID: `%d`", collectionName, clusterId)
+		clusterInfo := fmt.Sprintf("clusterID: `%d`", clusterId)
+		if clusterId == 0 {
+			clusterInfo = "all clusters"
+		}
+		m.Logger.Warnf("no documents found in `%s` collection for %s", collectionName, clusterInfo)
 		return nil, nil
 	}
 
