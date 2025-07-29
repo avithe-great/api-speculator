@@ -14,12 +14,26 @@ import (
 
 var digitCheck = regexp.MustCompile(`^[0-9]+$`)
 
-func UnifyParameterizedPathIfApplicable(path string) string {
+// UnifyParameterizedPathIfApplicable normalizes a path by replacing dynamic segments with {paramN}.
+// If isSpec = true, also treats existing {param} segments in OpenAPI specs as parameters.
+func UnifyParameterizedPathIfApplicable(path string, isSpec bool) string {
+	if path == "" {
+		return ""
+	}
+	if path == "/" {
+		return "/"
+	}
+
+	pathParts := strings.Split(strings.Trim(path, "/"), "/")
 	var parameterizedPathParts []string
 	paramCount := 0
-	pathParts := strings.Split(path, "/")
 
 	for _, part := range pathParts {
+		if isSpec && strings.HasPrefix(part, "{") && strings.HasSuffix(part, "}") {
+			parameterizedPathParts = append(parameterizedPathParts, part)
+			continue
+		}
+
 		if isSuspectPathParam(part) {
 			paramCount++
 			paramName := fmt.Sprintf("param%v", paramCount)
@@ -28,36 +42,19 @@ func UnifyParameterizedPathIfApplicable(path string) string {
 			parameterizedPathParts = append(parameterizedPathParts, part)
 		}
 	}
-	return strings.Join(parameterizedPathParts, "/")
+	return "/" + strings.Join(parameterizedPathParts, "/")
 }
 
-func isSuspectPathParam(pathPart string) bool {
-	if isNumber(pathPart) {
-		return true
-	}
-	if isUUID(pathPart) {
-		return true
-	}
-	if isMixed(pathPart) {
-		return true
-	}
-	if isString(pathPart) {
-		return true
-	}
-	return false
+func isSuspectPathParam(part string) bool {
+	return isNumber(part) || isUUID(part) || isMixed(part)
 }
 
-func isString(pathPart string) bool {
-	return strings.Contains(pathPart, "{") &&
-		strings.Contains(pathPart, "}")
+func isNumber(s string) bool {
+	return digitCheck.MatchString(s)
 }
 
-func isNumber(pathPart string) bool {
-	return digitCheck.MatchString(pathPart)
-}
-
-func isUUID(pathPart string) bool {
-	_, err := uuid.FromString(pathPart)
+func isUUID(s string) bool {
+	_, err := uuid.FromString(s)
 	return err == nil
 }
 

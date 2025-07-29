@@ -21,19 +21,13 @@ func ExtractQueryAndParams(path string) (string, url.Values) {
 	return query, values
 }
 
-func GetPathAndQuery(fullPath string) (path, query string) {
-	// Example: "/example-path?param=value" returns "/example-path", "param=value"
-	index := strings.IndexByte(fullPath, '?')
-	if index == -1 {
-		return fullPath, ""
+// GetPathAndQuery splits a URL into path and query components.
+func GetPathAndQuery(fullPath string) (string, string) {
+	if idx := strings.IndexByte(fullPath, '?'); idx != -1 {
+		if idx == len(fullPath)-1 {
+			return fullPath[:idx], ""
+		}
+		return fullPath[:idx], fullPath[idx+1:]
 	}
-
-	// Example: "/path?" returns "/path?", ""
-	if index == (len(fullPath) - 1) {
-		return fullPath, ""
-	}
-
-	path = fullPath[:index]
-	query = fullPath[index+1:]
-	return
+	return fullPath, ""
 }
