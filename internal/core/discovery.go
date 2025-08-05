@@ -88,7 +88,7 @@ func (m *Manager) findOrphanApi(events *hashset.Set, model *libopenapi.DocumentM
 		}
 
 		requestPath, _ := apispec.GetPathAndQuery(event.RequestPath)
-		requestPath = apispec.UnifyParameterizedPathIfApplicable(requestPath)
+		requestPath = apispec.UnifyParameterizedPathIfApplicable(requestPath, false)
 		requestMethod := strings.ToUpper(event.RequestMethod)
 		key := fmt.Sprintf("%v/%v", requestMethod, requestPath)
 
@@ -99,7 +99,7 @@ func (m *Manager) findOrphanApi(events *hashset.Set, model *libopenapi.DocumentM
 
 	for pathItems := model.Model.Paths.PathItems.First(); pathItems != nil; pathItems = pathItems.Next() {
 		for operations := pathItems.Value().GetOperations().First(); operations != nil; operations = operations.Next() {
-			requestPath := apispec.UnifyParameterizedPathIfApplicable(pathItems.Key())
+			requestPath := apispec.UnifyParameterizedPathIfApplicable(pathItems.Key(), true)
 			requestMethod := strings.ToUpper(operations.Key())
 			key := fmt.Sprintf("%v/%v", requestMethod, requestPath)
 

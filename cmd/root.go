@@ -27,12 +27,14 @@ func init() {
 
 var RootCmd = &cobra.Command{
 	Use:   "speculator",
-	Short: "speculator is a utility that identifies shadow and zombie APIs by analyzing API traffic against provided API specifications",
-	Long: `speculator helps you to secure your APIs by identifying shadow and zombie APIs.
+	Short: "speculator is a utility that identifies shadow, orphan, and zombie APIs by analyzing API traffic against provided API specifications",
+
+	Long: `speculator helps you secure your APIs by identifying shadow, orphan, and zombie APIs.
 
 By analyzing API traffic in conjunction with your API specifications (e.g., OpenAPI, Swagger), speculator can detect:
   * Shadow APIs: Endpoints that are implemented and functional but not documented in your API specification.
-  * Zombie APIs: Endpoints that are deprecated or abandoned in your API specification but they are still in use.
+  * Zombie APIs: Endpoints that are deprecated or abandoned in your API specification but are still in use.
+  * Orphan APIs: Endpoints that are defined in your API specification but are never invoked in the observed traffic.
 `,
 	//Long: `A Utility to identify Shadow and Zombie APIs provided API Specification`,
 	Run: func(cmd *cobra.Command, args []string) {
