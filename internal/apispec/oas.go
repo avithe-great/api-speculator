@@ -5,7 +5,7 @@ package apispec
 
 import (
 	"github.com/pb33f/libopenapi"
-	"github.com/pb33f/libopenapi/datamodel/high/v3"
+	v3 "github.com/pb33f/libopenapi/datamodel/high/v3"
 )
 
 func BuildOASV3Model(specBytes []byte) (*libopenapi.DocumentModel[v3.Document], error) {

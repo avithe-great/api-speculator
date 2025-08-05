@@ -9,7 +9,7 @@ import (
 
 	"github.com/emirpasic/gods/sets/hashset"
 	"github.com/pb33f/libopenapi"
-	"github.com/pb33f/libopenapi/datamodel/high/v3"
+	v3 "github.com/pb33f/libopenapi/datamodel/high/v3"
 
 	"github.com/5gsec/api-speculator/internal/apievent"
 	"github.com/5gsec/api-speculator/internal/apispec"

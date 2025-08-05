@@ -6,6 +6,7 @@ package config
 import (
 	"encoding/json"
 	"fmt"
+	"time"
 
 	"github.com/spf13/viper"
 	"go.uber.org/zap"
@@ -36,6 +37,7 @@ type Configuration struct {
 	Environment Environment `json:"environment"`
 	OpenAPISpec string      `json:"openAPISpec"`
 	Exporter    Exporter    `json:"exporter,omitempty"`
+	ScanName    string      `json:"scanName"`
 }
 
 func (c *Configuration) validate() error {
@@ -57,10 +59,6 @@ func (c *Configuration) validate() error {
 
 	if c.OpenAPISpec == "" {
 		return fmt.Errorf("configuration does not contain a valid OpenAPI Specification filepath or URL")
-	}
-
-	if c.Environment.ClusterId == 0 {
-		return fmt.Errorf("please provide a valid cluster ID")
 	}
 
 	if c.Exporter.JsonReportFilePath == "" {
@@ -88,6 +86,11 @@ func New(configFilePath string, logger *zap.SugaredLogger) (Configuration, error
 	if config.Exporter.JsonReportFilePath == "" {
 		config.Exporter.JsonReportFilePath = defaultJSONReportFilePath
 		logger.Warn("using default JSON report file path: ", defaultJSONReportFilePath)
+	}
+
+	if config.ScanName == "" {
+		config.ScanName = fmt.Sprintf("openapi-scan-%s", time.Now().Format("20060102-150405"))
+		logger.Infof("scanName not provided, using generated name: %s", config.ScanName)
 	}
 
 	if err := config.validate(); err != nil {
