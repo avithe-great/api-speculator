@@ -1,0 +1,21 @@
+# goreleaser.yml
+project_name: speculator
+builds:
+  - id: speculator
+    main: ./main.go
+    binary: speculator
+    env:
+      - CGO_ENABLED=0
+    goos:
+      - linux
+      - darwin
+    goarch:
+      - amd64
+      - arm64
+    ldflags:
+      - "-s -w"
+
+archives:
+  - id: tarballs
+    format: tar.gz
+    name_template: "speculator-{{ .Os }}-{{ .Arch }}"
