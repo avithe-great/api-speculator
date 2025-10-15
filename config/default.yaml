@@ -18,3 +18,13 @@ exporter:
   jsonReportFilePath: report.json
 
 scanName: default-openapi-spec-scan  
+
+
+api_collections:
+  # The MongoDB collection name pattern (we’ll replace <tenant_id> dynamically)
+  collection_template: "obs_system_api_collections_<tenant_id>"
+
+  # List of collection names we want to use
+  name_list:
+    - "<collection1>"
+    - "<collection2>"    

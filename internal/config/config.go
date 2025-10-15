@@ -32,12 +32,18 @@ type Exporter struct {
 	JsonReportFilePath string `json:"jsonReportFilePath,omitempty"`
 }
 
+type APICollections struct {
+	CollectionTemplate string   `json:"collectionTemplate"` // e.g., "obs_system_api_collections_<tenant_id>"
+	NameList           []string `json:"nameList"`           // actual collection names to filter
+}
+
 type Configuration struct {
-	Database    Database    `json:"database"`
-	Environment Environment `json:"environment"`
-	OpenAPISpec string      `json:"openAPISpec"`
-	Exporter    Exporter    `json:"exporter,omitempty"`
-	ScanName    string      `json:"scanName"`
+	Database       Database       `json:"database"`
+	Environment    Environment    `json:"environment"`
+	OpenAPISpec    string         `json:"openAPISpec"`
+	Exporter       Exporter       `json:"exporter,omitempty"`
+	ScanName       string         `json:"scanName"`
+	APICollections APICollections `json:"apiCollections,omitempty"`
 }
 
 func (c *Configuration) validate() error {
