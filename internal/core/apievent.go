@@ -12,9 +12,9 @@ import (
 	"go.mongodb.org/mongo-driver/mongo/options"
 )
 
-// findDocuments fetches API documents based on collectionName, optional clusterId,
-// and optional collectionCriteria. Returns a set of unique apievent.ApiEvent.
-func (m *Manager) findDocuments(eventCollectionName, apiCollectionName string, clusterId int, nameList []string) (*hashset.Set, error) {
+// findApiOperationDocuments fetches API documents based on collectionName, optional clusterId,
+// and optional collectionCriteria. Returns a set of unique apievent.
+func (m *Manager) findApiOperationDocuments(eventCollectionName, apiCollectionName string, clusterId int, nameList []string) (*hashset.Set, error) {
 	// base filter: only Api operation documents
 	filter := bson.D{{Key: "operation", Value: "Api"}}
 
