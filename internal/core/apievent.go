@@ -11,10 +11,7 @@ import (
 )
 
 func (m *Manager) findDocuments(collectionName string, clusterId int) (*hashset.Set, error) {
-	filter := bson.D{
-		{Key: "operation", Value: "Api"},
-	}
-
+	filter := bson.D{{Key: "operation", Value: "Api"}}
 	if clusterId != 0 {
 		filter = append(filter, bson.E{Key: "cluster_id", Value: clusterId})
 	}
@@ -23,47 +20,91 @@ func (m *Manager) findDocuments(collectionName string, clusterId int) (*hashset.
 		{Key: "_id", Value: 0},
 		{Key: "cluster_name", Value: 1},
 		{Key: "api_event.http.request.headers.:authority", Value: 1},
+		{Key: "api_event.http.request.headers.host", Value: 1},
 		{Key: "api_event.http.request.method", Value: 1},
 		{Key: "api_event.http.request.path", Value: 1},
 		{Key: "api_event.http.response.status_code", Value: 1},
 		{Key: "api_event.count", Value: 1},
 	}
 
-	cursor, err := m.DBHandler.Database.
-		Collection(collectionName).
-		Find(m.Ctx, filter, &options.FindOptions{
-			Projection: &projection,
-		})
+	cursor, err := m.DBHandler.Database.Collection(collectionName).Find(
+		m.Ctx,
+		filter,
+		&options.FindOptions{Projection: &projection},
+	)
 	if err != nil {
 		return nil, fmt.Errorf("failed to find documents: %w", err)
 	}
 	defer func() {
-		if err := cursor.Close(m.Ctx); err != nil {
-			m.Logger.Errorf("failed to close cursor: %v", err)
+		if cerr := cursor.Close(m.Ctx); cerr != nil {
+			m.Logger.Errorf("failed to close cursor: %v", cerr)
 		}
 	}()
 
 	apiEvents := hashset.New()
+
 	for cursor.Next(m.Ctx) {
-		var document bson.M
-		if err := cursor.Decode(&document); err != nil {
-			m.Logger.Error(err)
+		var doc bson.M
+		if err := cursor.Decode(&doc); err != nil {
+			m.Logger.Warnf("failed to decode document: %v", err)
 			continue
 		}
 
-		responseCode := document["api_event"].(bson.M)["http"].(bson.M)["response"].(bson.M)["status_code"]
-		if responseCode == nil {
+		clusterName, _ := doc["cluster_name"].(string)
+		apiEvent, _ := doc["api_event"].(bson.M)
+		if apiEvent == nil {
 			continue
+		}
+
+		httpEvent, _ := apiEvent["http"].(bson.M)
+		if httpEvent == nil {
+			continue
+		}
+
+		req, _ := httpEvent["request"].(bson.M)
+		resp, _ := httpEvent["response"].(bson.M)
+
+		var responseCode int
+		if rc, ok := resp["status_code"].(int32); ok {
+			responseCode = int(rc)
+		} else if rc, ok := resp["status_code"].(int64); ok {
+			responseCode = int(rc)
+		}
+
+		if responseCode == 0 {
+			continue
+		}
+
+		headers, _ := req["headers"].(bson.M)
+		serviceName := ""
+		if v, ok := headers[":authority"].(string); ok {
+			serviceName = v
+		} else if v, ok := headers["host"].(string); ok {
+			serviceName = v
+		}
+
+		requestMethod, _ := req["method"].(string)
+		requestPath, _ := req["path"].(string)
+
+		var occurrences int
+		if cnt, ok := apiEvent["count"].(int32); ok {
+			occurrences = int(cnt)
+		} else if cnt, ok := apiEvent["count"].(int64); ok {
+			occurrences = int(cnt)
 		}
 
 		apiEvents.Add(apievent.ApiEvent{
-			ClusterName:   document["cluster_name"].(string),
-			ServiceName:   document["api_event"].(bson.M)["http"].(bson.M)["request"].(bson.M)["headers"].(bson.M)[":authority"].(string),
-			RequestMethod: document["api_event"].(bson.M)["http"].(bson.M)["request"].(bson.M)["method"].(string),
-			RequestPath:   document["api_event"].(bson.M)["http"].(bson.M)["request"].(bson.M)["path"].(string),
-			ResponseCode:  int(responseCode.(int64)),
-			Occurrences:   int(document["api_event"].(bson.M)["count"].(int32)),
+			ClusterName:   clusterName,
+			ServiceName:   serviceName,
+			RequestMethod: requestMethod,
+			RequestPath:   requestPath,
+			ResponseCode:  responseCode,
+			Occurrences:   occurrences,
 		})
+	}
+
+	if err := cursor.Err(); err != nil {
+		m.Logger.Errorf("cursor iteration error: %v", err)
 	}
 
 	if apiEvents.Size() == 0 {
@@ -71,7 +112,7 @@ func (m *Manager) findDocuments(collectionName string, clusterId int) (*hashset.
 		if clusterId == 0 {
 			clusterInfo = "all clusters"
 		}
-		m.Logger.Warnf("no documents found in `%s` collection for %s", collectionName, clusterInfo)
+		m.Logger.Warnf("no API event documents found in `%s` for %s", collectionName, clusterInfo)
 		return nil, nil
 	}
 

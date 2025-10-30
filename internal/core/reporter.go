@@ -14,6 +14,7 @@ type API struct {
 	RequestMethod string `json:"requestMethod"`
 	RequestPath   string `json:"requestPath"`
 	Occurrences   int    `json:"occurrences,omitempty"`
+	Severity      string `json:"severity,omitempty"`
 }
 
 type apiReport struct {
