@@ -53,6 +53,10 @@ func (m *Manager) findShadowAndZombieApi(trie pathtrie.PathTrie, events *hashset
 					RequestPath:   requestPath,
 					Occurrences:   event.Occurrences,
 					Severity:      util.SeverityCritical,
+					Request:       event.Request,
+					Response:      event.Response,
+					StatusCode:    event.ResponseCode,
+					Port:          event.Port,
 				})
 			}
 		}
@@ -69,6 +73,10 @@ func (m *Manager) findShadowAndZombieApi(trie pathtrie.PathTrie, events *hashset
 							RequestPath:   requestPath,
 							Occurrences:   event.Occurrences,
 							Severity:      util.SeverityHigh,
+							Request:       event.Request,
+							Response:      event.Response,
+							StatusCode:    event.ResponseCode,
+							Port:          event.Port,
 						})
 					}
 				}

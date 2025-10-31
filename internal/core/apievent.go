@@ -8,6 +8,7 @@ import (
 	"go.mongodb.org/mongo-driver/mongo/options"
 
 	"github.com/5gsec/api-speculator/internal/apievent"
+	"github.com/5gsec/api-speculator/internal/util"
 )
 
 func (m *Manager) findDocuments(collectionName string, clusterId int) (*hashset.Set, error) {
@@ -19,25 +20,21 @@ func (m *Manager) findDocuments(collectionName string, clusterId int) (*hashset.
 	projection := bson.D{
 		{Key: "_id", Value: 0},
 		{Key: "cluster_name", Value: 1},
-		{Key: "api_event.http.request.headers.:authority", Value: 1},
-		{Key: "api_event.http.request.headers.host", Value: 1},
-		{Key: "api_event.http.request.method", Value: 1},
-		{Key: "api_event.http.request.path", Value: 1},
-		{Key: "api_event.http.response.status_code", Value: 1},
+		{Key: "api_event.http.request", Value: 1},
+		{Key: "api_event.http.response", Value: 1},
+		{Key: "api_event.network.destination.port", Value: 1},
 		{Key: "api_event.count", Value: 1},
 	}
 
 	cursor, err := m.DBHandler.Database.Collection(collectionName).Find(
-		m.Ctx,
-		filter,
-		&options.FindOptions{Projection: &projection},
+		m.Ctx, filter, &options.FindOptions{Projection: projection},
 	)
 	if err != nil {
 		return nil, fmt.Errorf("failed to find documents: %w", err)
 	}
 	defer func() {
 		if cerr := cursor.Close(m.Ctx); cerr != nil {
-			m.Logger.Errorf("failed to close cursor: %v", cerr)
+			m.Logger.Warnf("failed to close cursor: %v", cerr)
 		}
 	}()
 
@@ -50,48 +47,57 @@ func (m *Manager) findDocuments(collectionName string, clusterId int) (*hashset.
 			continue
 		}
 
-		clusterName, _ := doc["cluster_name"].(string)
-		apiEvent, _ := doc["api_event"].(bson.M)
+		clusterName := util.ToString(doc["cluster_name"])
+
+		apiEvent := util.ToBsonM(doc["api_event"])
 		if apiEvent == nil {
 			continue
 		}
 
-		httpEvent, _ := apiEvent["http"].(bson.M)
-		if httpEvent == nil {
-			continue
-		}
+		httpEvent := util.ToBsonM(apiEvent["http"])
+		networkEvent := util.ToBsonM(apiEvent["network"])
 
-		req, _ := httpEvent["request"].(bson.M)
-		resp, _ := httpEvent["response"].(bson.M)
+		req := util.ToBsonM(httpEvent["request"])
+		resp := util.ToBsonM(httpEvent["response"])
 
-		var responseCode int
-		if rc, ok := resp["status_code"].(int32); ok {
-			responseCode = int(rc)
-		} else if rc, ok := resp["status_code"].(int64); ok {
-			responseCode = int(rc)
-		}
-
+		responseCode := util.ToInt(resp["status_code"])
 		if responseCode == 0 {
 			continue
 		}
 
-		headers, _ := req["headers"].(bson.M)
+		// Extract port
+		port := 0
+		if networkEvent != nil {
+			if dest := util.ToBsonM(networkEvent["destination"]); dest != nil {
+				port = util.ToInt(dest["port"])
+			}
+		}
+
+		// Extract headers → serviceName
 		serviceName := ""
-		if v, ok := headers[":authority"].(string); ok {
-			serviceName = v
-		} else if v, ok := headers["host"].(string); ok {
-			serviceName = v
+		if req != nil {
+			if headers := util.ToBsonM(req["headers"]); headers != nil {
+				if v := util.ToString(headers[":authority"]); v != "" {
+					serviceName = v
+				} else if v := util.ToString(headers["host"]); v != "" {
+					serviceName = v
+				}
+			}
 		}
 
-		requestMethod, _ := req["method"].(string)
-		requestPath, _ := req["path"].(string)
-
-		var occurrences int
-		if cnt, ok := apiEvent["count"].(int32); ok {
-			occurrences = int(cnt)
-		} else if cnt, ok := apiEvent["count"].(int64); ok {
-			occurrences = int(cnt)
+		requestMethod := util.ToString(req["method"])
+		requestPath := util.ToString(req["path"])
+		var requestBody interface{}
+		if req != nil {
+			requestBody = req["body"]
 		}
+
+		var responseBody interface{}
+		if resp != nil {
+			responseBody = resp["body"]
+		}
+
+		occurrences := util.ToInt(apiEvent["count"])
 
 		apiEvents.Add(apievent.ApiEvent{
 			ClusterName:   clusterName,
@@ -100,20 +106,14 @@ func (m *Manager) findDocuments(collectionName string, clusterId int) (*hashset.
 			RequestPath:   requestPath,
 			ResponseCode:  responseCode,
 			Occurrences:   occurrences,
+			Port:          port,
+			Request:       requestBody,
+			Response:      responseBody,
 		})
 	}
 
 	if err := cursor.Err(); err != nil {
-		m.Logger.Errorf("cursor iteration error: %v", err)
-	}
-
-	if apiEvents.Size() == 0 {
-		clusterInfo := fmt.Sprintf("clusterID: `%d`", clusterId)
-		if clusterId == 0 {
-			clusterInfo = "all clusters"
-		}
-		m.Logger.Warnf("no API event documents found in `%s` for %s", collectionName, clusterInfo)
-		return nil, nil
+		return apiEvents, fmt.Errorf("cursor iteration error: %w", err)
 	}
 
 	return apiEvents, nil
