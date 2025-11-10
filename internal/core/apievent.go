@@ -16,15 +16,15 @@ import (
 
 // findApiOperationDocuments fetches API documents based on collectionName, optional clusterId,
 // and optional collectionCriteria. Returns a set of unique apievent.
-func (m *Manager) findApiOperationDocuments(eventCollectionName, apiCollectionName string, clusterId int, nameList, endpoints []string) (*hashset.Set, error) {
+func (m *Manager) findApiOperationDocuments(eventCollectionName, apiCollectionName string, clusterId int, collectionNames, endpoints []string) (*hashset.Set, error) {
 	filter := bson.D{{Key: "operation", Value: "Api"}}
 	if clusterId != 0 {
 		filter = append(filter, bson.E{Key: "cluster_id", Value: clusterId})
 	}
 
 	// if apiCollectionName and nameList are provided, fetch criteria and build filter
-	if apiCollectionName != "" && len(nameList) > 0 {
-		criteriaMap, err := m.GetCriteriaByCollections(m.Ctx, apiCollectionName, nameList)
+	if apiCollectionName != "" && len(collectionNames) > 0 {
+		criteriaMap, err := m.GetCriteriaByCollections(m.Ctx, apiCollectionName, collectionNames)
 		if err != nil {
 			m.Logger.Errorf("failed to get criteria by collections: %v", err)
 			return nil, fmt.Errorf("failed to get criteria by collections: %w", err)

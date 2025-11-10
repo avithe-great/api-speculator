@@ -20,11 +20,11 @@ exporter:
 scanName: default-openapi-spec-scan  
 
 apiCollections:
-  # The MongoDB collection name pattern (we’ll replace <tenant_id> dynamically)
-  collectionTemplate: "obs_system_api_collections_<tenant_id>"
+  # The MongoDB collection name used for storing API collections
+  dbCollectionName: <collectionName>
 
-  # List of collection names we want to use
-  nameList:
+  # List of API collection names to be used for the scan
+  collectionNames:
     - "collection-1"
     - "collection-2"    
 

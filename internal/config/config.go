@@ -33,8 +33,8 @@ type Exporter struct {
 }
 
 type APICollections struct {
-	CollectionTemplate string   `json:"collectionTemplate"`
-	NameList           []string `json:"nameList"`
+	DbCollectionName string   `json:"dbCollectionName"`
+	CollectionNames  []string `json:"collectionNames"`
 }
 
 type Configuration struct {
