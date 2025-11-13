@@ -13,14 +13,17 @@ import (
 
 	"github.com/5gsec/api-speculator/internal/apievent"
 	"github.com/5gsec/api-speculator/internal/apispec"
-	"github.com/5gsec/api-speculator/internal/pathtrie"
 	"github.com/5gsec/api-speculator/internal/util"
 )
 
-// findShadowAndZombieApi finds shadow (traffic not in trie/spec) and zombie (deprecated in spec but seen in traffic) APIs.
-func (m *Manager) findShadowAndZombieApi(trie pathtrie.PathTrie, events *hashset.Set, model *libopenapi.DocumentModel[v3.Document]) ([]API, []API) {
+// findShadowAndZombieApis finds shadow (traffic not in trie/spec) and zombie (deprecated in spec but seen in traffic) APIs.
+func (m *Manager) findShadowAndZombieApis(events *hashset.Set, modelsMap map[string]*libopenapi.DocumentModel[v3.Document]) ([]API, []API) {
 	var shadowApis []API
 	var zombieApis []API
+
+	if events == nil || len(modelsMap) == 0 {
+		return shadowApis, zombieApis
+	}
 
 	for _, value := range events.Values() {
 		event, ok := value.(apievent.ApiEvent)
@@ -30,10 +33,9 @@ func (m *Manager) findShadowAndZombieApi(trie pathtrie.PathTrie, events *hashset
 		}
 
 		requestPathRaw, _ := apispec.GetPathAndQuery(event.RequestPath)
-		// Normalize the path to match spec keys
 		normalizedPath := apispec.UnifyParameterizedPathIfApplicable(requestPathRaw, false)
+		methodLower := strings.ToLower(event.RequestMethod)
 
-		// Skip static assets and root endpoint
 		if requestPathRaw == "/" ||
 			strings.HasPrefix(requestPathRaw, "/assets") ||
 			strings.HasPrefix(requestPathRaw, "/site") ||
@@ -47,10 +49,55 @@ func (m *Manager) findShadowAndZombieApi(trie pathtrie.PathTrie, events *hashset
 			continue
 		}
 
-		// Shadow detection: if trie doesn't contain the raw request path, mark as shadow.
-		_, _, found := trie.GetPathAndValue(requestPathRaw)
-		if !found {
-			if !contains(shadowApis, event) {
+		methodExists := false
+		pathFoundAny := false
+
+		for _, model := range modelsMap {
+			if model == nil {
+				continue
+			}
+
+			for pathItems := model.Model.Paths.PathItems.First(); pathItems != nil; pathItems = pathItems.Next() {
+				specPathUnified := apispec.UnifyParameterizedPathIfApplicable(pathItems.Key(), true)
+				if specPathUnified == normalizedPath {
+					pathFoundAny = true
+					for op := pathItems.Value().GetOperations().First(); op != nil; op = op.Next() {
+						if op.Value() == nil {
+							continue
+						}
+						if strings.ToLower(op.Key()) == methodLower {
+							methodExists = true
+							break
+						}
+					}
+					break
+				}
+			}
+			if methodExists {
+				break
+			}
+		}
+
+		// If path exists somewhere but method does NOT exist -> shadow
+		if pathFoundAny && !methodExists {
+			if !contains(shadowApis, normalizedPath, event.RequestMethod, event.ServiceName) {
+				shadowApis = append(shadowApis, API{
+					ClusterName:   event.ClusterName,
+					ServiceName:   event.ServiceName,
+					RequestMethod: event.RequestMethod,
+					RequestPath:   normalizedPath,
+					Occurrences:   event.Occurrences,
+					Severity:      util.SeverityCritical,
+					Request:       event.Request,
+					Response:      event.Response,
+					StatusCode:    event.ResponseCode,
+					Port:          event.Port,
+					Type:          util.FindingTypeShadow,
+				})
+			}
+		} else if !pathFoundAny {
+			// If path not found in any spec, treat as shadow as well (path missing)
+			if !contains(shadowApis, normalizedPath, event.RequestMethod, event.ServiceName) {
 				shadowApis = append(shadowApis, API{
 					ClusterName:   event.ClusterName,
 					ServiceName:   event.ServiceName,
@@ -67,35 +114,17 @@ func (m *Manager) findShadowAndZombieApi(trie pathtrie.PathTrie, events *hashset
 			}
 		}
 
-		// Zombie detection: check if this path exists in the model and any operation is deprecated.
-		if pi, found := model.Model.Paths.PathItems.Get(requestPathRaw); found {
-			for op := pi.GetOperations().First(); op != nil; op = op.Next() {
-				if op.Value() != nil && op.Value().Deprecated != nil && *op.Value().Deprecated {
-					if !contains(zombieApis, event) {
-						zombieApis = append(zombieApis, API{
-							ClusterName:   event.ClusterName,
-							ServiceName:   event.ServiceName,
-							RequestMethod: event.RequestMethod,
-							RequestPath:   normalizedPath,
-							Occurrences:   event.Occurrences,
-							Severity:      util.SeverityHigh,
-							Request:       event.Request,
-							Response:      event.Response,
-							StatusCode:    event.ResponseCode,
-							Port:          event.Port,
-							Type:          util.FindingTypeZombie,
-						})
-					}
-				}
+		// Zombie detection across specs: mark as zombie if any matching operation in any spec is deprecated
+		for _, model := range modelsMap {
+			if model == nil {
+				continue
 			}
-		} else {
-			// fallback: iterate spec paths and compare unified/parameterized form
 			for pathItems := model.Model.Paths.PathItems.First(); pathItems != nil; pathItems = pathItems.Next() {
 				specPathUnified := apispec.UnifyParameterizedPathIfApplicable(pathItems.Key(), true)
 				if specPathUnified == normalizedPath {
 					for op := pathItems.Value().GetOperations().First(); op != nil; op = op.Next() {
 						if op.Value() != nil && op.Value().Deprecated != nil && *op.Value().Deprecated {
-							if !contains(zombieApis, event) {
+							if !contains(zombieApis, normalizedPath, event.RequestMethod, event.ServiceName) {
 								zombieApis = append(zombieApis, API{
 									ClusterName:   event.ClusterName,
 									ServiceName:   event.ServiceName,
@@ -121,39 +150,51 @@ func (m *Manager) findShadowAndZombieApi(trie pathtrie.PathTrie, events *hashset
 	return shadowApis, zombieApis
 }
 
-// findOrphanApi finds spec-defined endpoints that never received traffic.
-func (m *Manager) findOrphanApi(events *hashset.Set, model *libopenapi.DocumentModel[v3.Document]) []API {
+// findOrphanApis finds spec-defined endpoints that never received traffic.
+func (m *Manager) findOrphanApis(events *hashset.Set, modelsMap map[string]*libopenapi.DocumentModel[v3.Document]) []API {
 	var orphanApis []API
 
-	traffickedEndpointsWithReqMethodAndPathOnly := make(map[string]struct{}, events.Size())
+	if events == nil || len(modelsMap) == 0 {
+		return orphanApis
+	}
+
+	trafficked := make(map[string]struct{}, events.Size())
 	for _, value := range events.Values() {
 		event, ok := value.(apievent.ApiEvent)
 		if !ok {
 			m.Logger.Warnf("failed to parse endpoint `%v`", value)
 			continue
 		}
-
 		requestPath, _ := apispec.GetPathAndQuery(event.RequestPath)
-
 		requestPath = apispec.UnifyParameterizedPathIfApplicable(requestPath, false)
 		requestMethod := strings.ToUpper(event.RequestMethod)
-		key := fmt.Sprintf("%v/%v", requestMethod, requestPath)
-
-		if _, exists := traffickedEndpointsWithReqMethodAndPathOnly[key]; !exists {
-			traffickedEndpointsWithReqMethodAndPathOnly[key] = struct{}{}
-		}
+		key := fmt.Sprintf("%s/%s", requestMethod, requestPath)
+		trafficked[key] = struct{}{}
 	}
 
-	for pathItems := model.Model.Paths.PathItems.First(); pathItems != nil; pathItems = pathItems.Next() {
-		for operations := pathItems.Value().GetOperations().First(); operations != nil; operations = operations.Next() {
-			requestPath := apispec.UnifyParameterizedPathIfApplicable(pathItems.Key(), true)
-			requestMethod := strings.ToUpper(operations.Key())
-			key := fmt.Sprintf("%v/%v", requestMethod, requestPath)
+	// Walk all spec models and produce orphan entries for spec endpoints not present in trafficked set
+	seen := make(map[string]struct{}) // dedupe orphans
+	for _, model := range modelsMap {
+		if model == nil {
+			continue
+		}
+		for pathItems := model.Model.Paths.PathItems.First(); pathItems != nil; pathItems = pathItems.Next() {
+			specPath := apispec.UnifyParameterizedPathIfApplicable(pathItems.Key(), true)
+			for operations := pathItems.Value().GetOperations().First(); operations != nil; operations = operations.Next() {
+				method := strings.ToUpper(operations.Key())
+				key := fmt.Sprintf("%s/%s", method, specPath)
+				if _, exists := trafficked[key]; exists {
+					continue // trafficked -> not orphan
+				}
+				// dedupe across specs
+				if _, ok := seen[key]; ok {
+					continue
+				}
+				seen[key] = struct{}{}
 
-			if _, exists := traffickedEndpointsWithReqMethodAndPathOnly[key]; !exists {
 				orphanApis = append(orphanApis, API{
-					RequestMethod: requestMethod,
-					RequestPath:   requestPath,
+					RequestMethod: method,
+					RequestPath:   specPath,
 					Severity:      util.SeverityLow,
 					Type:          util.FindingTypeOrphan,
 				})
@@ -164,21 +205,14 @@ func (m *Manager) findOrphanApi(events *hashset.Set, model *libopenapi.DocumentM
 	return orphanApis
 }
 
-func contains(apis []API, currEvent apievent.ApiEvent) bool {
-	for _, api := range apis {
-		if api.RequestPath == currEvent.RequestPath &&
-			api.RequestMethod == currEvent.RequestMethod &&
-			api.ServiceName == currEvent.ServiceName {
-			return true
-		}
-	}
-	return false
-}
+func (m *Manager) findActiveApis(events *hashset.Set, modelsMap map[string]*libopenapi.DocumentModel[v3.Document]) []API {
 
-func (m *Manager) findActiveApis(events *hashset.Set, model *libopenapi.DocumentModel[v3.Document]) []API {
 	var activeApis []API
 
-	// Build map of trafficked endpoints keyed by "METHOD/normalizedPath"
+	if events == nil || len(modelsMap) == 0 {
+		return activeApis
+	}
+
 	trafficked := make(map[string]*API, events.Size())
 
 	for _, value := range events.Values() {
@@ -189,12 +223,11 @@ func (m *Manager) findActiveApis(events *hashset.Set, model *libopenapi.Document
 		}
 
 		requestPath, _ := apispec.GetPathAndQuery(event.RequestPath)
-		// normalize parameterized paths for matching with spec paths
 		normalizedPath := apispec.UnifyParameterizedPathIfApplicable(requestPath, false)
-		requestMethod := strings.ToUpper(event.RequestMethod)
-		key := fmt.Sprintf("%s/%s", requestMethod, normalizedPath)
+		method := strings.ToUpper(event.RequestMethod)
 
-		// Aggregate occurrences and keep representative metadata
+		key := fmt.Sprintf("%s|%s|%s|%s", event.ClusterName, event.ServiceName, method, normalizedPath)
+
 		if entry, exists := trafficked[key]; exists {
 			entry.Occurrences += event.Occurrences
 			entry.Request = event.Request
@@ -205,7 +238,7 @@ func (m *Manager) findActiveApis(events *hashset.Set, model *libopenapi.Document
 			trafficked[key] = &API{
 				ClusterName:   event.ClusterName,
 				ServiceName:   event.ServiceName,
-				RequestMethod: requestMethod,
+				RequestMethod: method,
 				RequestPath:   normalizedPath,
 				Occurrences:   event.Occurrences,
 				Request:       event.Request,
@@ -216,34 +249,47 @@ func (m *Manager) findActiveApis(events *hashset.Set, model *libopenapi.Document
 		}
 	}
 
-	// Walk the spec paths and mark those trafficked + not deprecated as active
-	for pathItems := model.Model.Paths.PathItems.First(); pathItems != nil; pathItems = pathItems.Next() {
-		specPath := apispec.UnifyParameterizedPathIfApplicable(pathItems.Key(), true)
-		for operations := pathItems.Value().GetOperations().First(); operations != nil; operations = operations.Next() {
-			method := strings.ToUpper(operations.Key())
-			key := fmt.Sprintf("%s/%s", method, specPath)
+	seen := make(map[string]struct{})
 
-			// If trafficked and operation not marked deprecated -> active
-			if entry, exists := trafficked[key]; exists {
-				op := operations.Value()
-				if op != nil && op.Deprecated != nil && *op.Deprecated {
-					// zombie API; skip.
-					continue
-				}
+	for _, model := range modelsMap {
+		if model == nil {
+			continue
+		}
 
-				found := false
-				for _, a := range activeApis {
-					if a.RequestMethod == entry.RequestMethod && a.RequestPath == entry.RequestPath && a.ServiceName == entry.ServiceName {
-						found = true
-						break
+		for pathItems := model.Model.Paths.PathItems.First(); pathItems != nil; pathItems = pathItems.Next() {
+
+			specPath := apispec.UnifyParameterizedPathIfApplicable(pathItems.Key(), true)
+
+			for operations := pathItems.Value().GetOperations().First(); operations != nil; operations = operations.Next() {
+
+				method := strings.ToUpper(operations.Key())
+
+				lookupSuffix := fmt.Sprintf("|%s|%s", method, apispec.UnifyParameterizedPathIfApplicable(specPath, false))
+
+				for trafficKey, entry := range trafficked {
+
+					if !strings.HasSuffix(trafficKey, lookupSuffix) {
+						continue
 					}
-				}
-				if !found {
+
+					op := operations.Value()
+
+					// Skip deprecated operations
+					if op != nil && op.Deprecated != nil && *op.Deprecated {
+						continue
+					}
+
+					uniqueKey := fmt.Sprintf("%s|%s|%s|%s", entry.ClusterName, entry.ServiceName, entry.RequestMethod, specPath)
+					if _, ok := seen[uniqueKey]; ok {
+						continue
+					}
+					seen[uniqueKey] = struct{}{}
+
 					activeApis = append(activeApis, API{
 						ClusterName:   entry.ClusterName,
 						ServiceName:   entry.ServiceName,
 						RequestMethod: entry.RequestMethod,
-						RequestPath:   entry.RequestPath,
+						RequestPath:   specPath,
 						Occurrences:   entry.Occurrences,
 						Severity:      util.SeverityInfo,
 						Request:       entry.Request,
@@ -258,4 +304,15 @@ func (m *Manager) findActiveApis(events *hashset.Set, model *libopenapi.Document
 	}
 
 	return activeApis
+}
+
+func contains(apis []API, path, method, service string) bool {
+	for _, api := range apis {
+		if api.RequestPath == path &&
+			api.RequestMethod == method &&
+			api.ServiceName == service {
+			return true
+		}
+	}
+	return false
 }

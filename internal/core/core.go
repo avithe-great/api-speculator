@@ -11,8 +11,6 @@ import (
 	"github.com/5gsec/api-speculator/internal/config"
 	"github.com/5gsec/api-speculator/internal/database"
 	"github.com/5gsec/api-speculator/internal/util"
-	"github.com/pb33f/libopenapi"
-	v3 "github.com/pb33f/libopenapi/datamodel/high/v3"
 )
 
 type Manager struct {
@@ -64,32 +62,39 @@ func Run(ctx context.Context, configFilePath string) {
 		mgr.Logger.Errorf("failed to find documents: %v", err)
 		return
 	}
-	if events.Size() == 0 {
+	if events == nil || events.Size() == 0 {
+		mgr.Logger.Info("no events found; exiting")
 		return
 	}
 
-	apiSpecFiles := []string{mgr.Cfg.OpenAPISpec, "......"} // going to read this from config
-
-	modelsMap := mgr.loadSpecModels(apiSpecFiles)
-
-	var model *libopenapi.DocumentModel[v3.Document]
-	if mm, ok := modelsMap[mgr.Cfg.OpenAPISpec]; ok && mm != nil { //need to build combined model from all specs
-		model = mm
-	}
-	if model == nil {
-		mgr.Logger.Errorf("no valid API spec model loaded; aborting")
+	// Load all spec models (map[fileName]*libopenapi.DocumentModel)
+	modelsMap := mgr.loadSpecModels(mgr.Cfg.OpenAPISpecs)
+	if len(modelsMap) == 0 {
+		mgr.Logger.Errorf("no valid API specs loaded; aborting")
 		return
 	}
 
-	trie := mgr.buildTrie(model)
+	mgr.Logger.Infof("loaded %d spec(s); computing findings across all specs", len(modelsMap))
 
-	shadowApis, zombieApis := mgr.findShadowAndZombieApi(trie, events, model)
-	orphanApis := mgr.findOrphanApi(events, model)
-	visibleApis := mgr.findActiveApis(events, model)
+	allShadowApis, allZombieApis := mgr.findShadowAndZombieApis(events, modelsMap)
+	allOrphanApis := mgr.findOrphanApis(events, modelsMap)
+	allActiveApis := mgr.findActiveApis(events, modelsMap)
 
-	if err := mgr.exportJsonReport(mgr.Cfg.Exporter.JsonReportFilePath, shadowApis, zombieApis, orphanApis, visibleApis, collectionNames, modelsMap); err != nil {
+	// Deduplicate results within each category
+	allShadowApis = RemoveDuplicateFindings(allShadowApis)
+	allZombieApis = RemoveDuplicateFindings(allZombieApis)
+	allOrphanApis = RemoveDuplicateFindings(allOrphanApis)
+	allActiveApis = RemoveDuplicateFindings(allActiveApis)
+
+	// Export findings
+	if err := mgr.exportJsonReport(
+		mgr.Cfg.Exporter.JsonReportFilePath,
+		allShadowApis, allZombieApis, allOrphanApis, allActiveApis,
+		collectionNames, modelsMap,
+	); err != nil {
 		mgr.Logger.Error(err)
 		return
 	}
+
 	mgr.Logger.Infof("successfully generated `%s` JSON report", mgr.Cfg.Exporter.JsonReportFilePath)
 }
