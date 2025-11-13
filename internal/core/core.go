@@ -11,6 +11,8 @@ import (
 	"github.com/5gsec/api-speculator/internal/config"
 	"github.com/5gsec/api-speculator/internal/database"
 	"github.com/5gsec/api-speculator/internal/util"
+	"github.com/pb33f/libopenapi"
+	v3 "github.com/pb33f/libopenapi/datamodel/high/v3"
 )
 
 type Manager struct {
@@ -66,12 +68,26 @@ func Run(ctx context.Context, configFilePath string) {
 		return
 	}
 
-	model, _ := mgr.buildModel(mgr.Cfg.OpenAPISpec)
+	apiSpecFiles := []string{mgr.Cfg.OpenAPISpec, "......"} // going to read this from config
+
+	modelsMap := mgr.loadSpecModels(apiSpecFiles)
+
+	var model *libopenapi.DocumentModel[v3.Document]
+	if mm, ok := modelsMap[mgr.Cfg.OpenAPISpec]; ok && mm != nil { //need to build combined model from all specs
+		model = mm
+	}
+	if model == nil {
+		mgr.Logger.Errorf("no valid API spec model loaded; aborting")
+		return
+	}
+
 	trie := mgr.buildTrie(model)
 
 	shadowApis, zombieApis := mgr.findShadowAndZombieApi(trie, events, model)
 	orphanApis := mgr.findOrphanApi(events, model)
-	if err := mgr.exportJsonReport(mgr.Cfg.Exporter.JsonReportFilePath, shadowApis, zombieApis, orphanApis, collectionNames); err != nil {
+	visibleApis := mgr.findActiveApis(events, model)
+
+	if err := mgr.exportJsonReport(mgr.Cfg.Exporter.JsonReportFilePath, shadowApis, zombieApis, orphanApis, visibleApis, collectionNames, modelsMap); err != nil {
 		mgr.Logger.Error(err)
 		return
 	}
