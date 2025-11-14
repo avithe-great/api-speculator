@@ -80,7 +80,7 @@ func (m *Manager) findShadowAndZombieApis(events *hashset.Set, modelsMap map[str
 
 		// If path exists somewhere but method does NOT exist -> shadow
 		if pathFoundAny && !methodExists {
-			if !contains(shadowApis, normalizedPath, event.RequestMethod, event.ServiceName) {
+			if !contains(shadowApis, normalizedPath, event.RequestMethod, event.ServiceName, event.ClusterName) {
 				shadowApis = append(shadowApis, API{
 					ClusterName:   event.ClusterName,
 					ServiceName:   event.ServiceName,
@@ -97,7 +97,7 @@ func (m *Manager) findShadowAndZombieApis(events *hashset.Set, modelsMap map[str
 			}
 		} else if !pathFoundAny {
 			// If path not found in any spec, treat as shadow as well (path missing)
-			if !contains(shadowApis, normalizedPath, event.RequestMethod, event.ServiceName) {
+			if !contains(shadowApis, normalizedPath, event.RequestMethod, event.ServiceName, event.ClusterName) {
 				shadowApis = append(shadowApis, API{
 					ClusterName:   event.ClusterName,
 					ServiceName:   event.ServiceName,
@@ -124,7 +124,7 @@ func (m *Manager) findShadowAndZombieApis(events *hashset.Set, modelsMap map[str
 				if specPathUnified == normalizedPath {
 					for op := pathItems.Value().GetOperations().First(); op != nil; op = op.Next() {
 						if op.Value() != nil && op.Value().Deprecated != nil && *op.Value().Deprecated {
-							if !contains(zombieApis, normalizedPath, event.RequestMethod, event.ServiceName) {
+							if !contains(zombieApis, normalizedPath, event.RequestMethod, event.ServiceName, event.ClusterName) {
 								zombieApis = append(zombieApis, API{
 									ClusterName:   event.ClusterName,
 									ServiceName:   event.ServiceName,
@@ -306,11 +306,9 @@ func (m *Manager) findActiveApis(events *hashset.Set, modelsMap map[string]*libo
 	return activeApis
 }
 
-func contains(apis []API, path, method, service string) bool {
+func contains(apis []API, path, method, service, clusterName string) bool {
 	for _, api := range apis {
-		if api.RequestPath == path &&
-			api.RequestMethod == method &&
-			api.ServiceName == service {
+		if api.RequestPath == path && api.RequestMethod == method && api.ServiceName == service && api.ClusterName == clusterName {
 			return true
 		}
 	}
