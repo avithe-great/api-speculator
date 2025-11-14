@@ -80,12 +80,6 @@ func Run(ctx context.Context, configFilePath string) {
 	allOrphanApis := mgr.findOrphanApis(events, modelsMap)
 	allActiveApis := mgr.findActiveApis(events, modelsMap)
 
-	// Deduplicate results within each category
-	allShadowApis = RemoveDuplicateFindings(allShadowApis)
-	allZombieApis = RemoveDuplicateFindings(allZombieApis)
-	allOrphanApis = RemoveDuplicateFindings(allOrphanApis)
-	allActiveApis = RemoveDuplicateFindings(allActiveApis)
-
 	// Export findings
 	if err := mgr.exportJsonReport(
 		mgr.Cfg.Exporter.JsonReportFilePath,
